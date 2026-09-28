@@ -72,5 +72,6 @@ flowchart TD
 6. **Stockage (PostgreSQL)** : La donnée propre atterrit dans un schéma dédié `analytics` au sein de la base existante.
 7. **Data Viz & Monitoring** : 
    - **Metabase** permet d'exploiter les tables du schéma `analytics` via des dashboards interactifs (Dashboard Métier).
-   - **Prometheus** capture les métriques des conteneurs (via cAdvisor, Kafka Exporter, Postgres Exporter).
-   - **Grafana** affiche des dashboards pour superviser la santé du pipeline et de l'infrastructure.
+   - **cAdvisor** (L'espion) : Outil Google monté sur l'hôte Docker (via des volumes `/var/run` et `/var/lib/docker/`) pour mesurer en temps réel la consommation (CPU, RAM) de chaque conteneur.
+   - **Prometheus** (Le carnet de santé) : Base de données temporelle configurée (via `prometheus.yml`) pour requêter cAdvisor (`http://cadvisor:8080/metrics`) toutes les 15 secondes. Il conserve l'historique des métriques du pipeline.
+   - **Grafana** (Le tableau de bord) : Connecté à Prometheus en interne (`http://prometheus:9090`), il permet de visualiser les courbes de santé de l'infrastructure (ex: consommation mémoire avec la requête PromQL `container_memory_usage_bytes / 1024 / 1024`). Tout transite par le réseau virtuel fermé `soko_network`.

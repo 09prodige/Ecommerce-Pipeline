@@ -37,3 +37,8 @@ tmp/
 !/supabase/*.sql
 android/
 ios/
+
+# Data Lake (volumineux, régénéré par le pipeline)
+datalake/raw/api_events/
+datalake/aggregated/
+spark_logs.txt
