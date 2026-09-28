@@ -1,0 +1,21 @@
+id,seller_id,category_id,title,price,status
+705f4fce-c8e9-4efd-b98c-6ef31cb909ef,e7d90723-976e-4ae0-a26f-827db5e45a48,,Lit double,45000,active
+75a77670-43a4-47b8-8617-a8e31d64336a,93bc7d64-8219-4c76-9f94-f30d5d18d5d6,,Ferrari,100000,active
+4570116c-53a1-41a0-aaa7-e55bca8c806c,93bc7d64-8219-4c76-9f94-f30d5d18d5d6,,OrdinateurHP,79000,active
+aec01b8d-498b-419a-a54c-a1bf7b7960ad,93bc7d64-8219-4c76-9f94-f30d5d18d5d6,,Ordi pour enfants,35000,active
+0d152eeb-73d5-440d-b9c3-841aa81733b1,e7d90723-976e-4ae0-a26f-827db5e45a48,,Sacs Hermès,150000,active
+b6a763d7-d390-4073-9ea3-9b9bbc1b8512,e7d90723-976e-4ae0-a26f-827db5e45a48,7,Télévision SAMSUNG,500000,active
+893b3d46-2498-4881-8517-d7f8e0e70ea7,5f73966f-bcc0-4335-bdf2-c1fe6fbfc74b,7,MacBook Air 15’,1500000,active
+35ca30b0-7fd6-4224-a4cd-e547046882e2,c790bcbd-2f74-429f-be14-fab514a90b34,6,Caméra Nikon D3200,150000,active
+0ea5ae8d-f524-47ec-a6b2-8c4d7d88970b,e7d90723-976e-4ae0-a26f-827db5e45a48,7,DELL 13,1700000,active
+27016d7c-b687-471e-ad3f-831653253507,93bc7d64-8219-4c76-9f94-f30d5d18d5d6,,Conception de logo,5000,active
+97eecf5a-8749-4842-a1bb-a32f58628b07,8626484a-94bc-4358-b66b-795affa89ced,,Iphone13,400000,active
+5bf9364c-330c-40ea-bf3e-f3d946dffdee,9f7dca15-5f93-424f-a7af-607e5dfc164c,12,PLAT DE MAFÉ POULET,5000,active
+51732c4e-dce7-4e3d-abfd-0c362a0a5b8b,b651486a-74af-4e23-856b-ab787e7c44dc,2,Robe Adiré 🪡,15000,active
+b2903249-b455-4aef-b84c-e852b696b449,8626484a-94bc-4358-b66b-795affa89ced,5,IPhone 13,100,sold
+c0ee90bb-1bc4-43e3-bf34-212ad7ece0b1,8e5f6b5d-61a5-460d-8a60-f51f4cfb5078,12,Fruit de mer,15000,active
+62bd9d19-a292-4582-ac0b-a669fde39986,8626484a-94bc-4358-b66b-795affa89ced,22,Voiture Renault Captur,45000,active
+db575b6f-ca79-41d5-8914-88acc4919cc5,8b8f4770-07b3-4ca6-8d14-7333235df4d1,9,Gommage au café noir,5000,active
+f1c8d96f-c233-421b-b41e-df4e43bfcdf7,e7d90723-976e-4ae0-a26f-827db5e45a48,4,Hermès Sac 2009,234000,active
+d08ed0a1-3cf7-47c6-9614-781bdb21a1cb,e7d90723-976e-4ae0-a26f-827db5e45a48,17,Réparation Ecran IPhone 14,5000,active
+eafff6bd-8276-4681-a364-496fe98c5712,e7d90723-976e-4ae0-a26f-827db5e45a48,3,Nike Air Force 1 '07 LV8 EMB,45000,active

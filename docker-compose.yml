@@ -1,0 +1,158 @@
+services:
+  # ==========================================
+  # 1. STREAMING (KAFKA & ZOOKEEPER)
+  # ==========================================
+  zookeeper:
+    image: bitnamilegacy/zookeeper:3.8
+    container_name: soko_zookeeper
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    ports:
+      - "2181:2181"
+    networks:
+      - soko_network
+
+  kafka:
+    image: bitnamilegacy/kafka:3.4
+    container_name: soko_kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:29092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    networks:
+      - soko_network
+
+  # ==========================================
+  # 2. API & PRODUCER (ConnectÃ©s au vrai Supabase)
+  # ==========================================
+  api:
+    build: ./api
+    container_name: soko_api
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: aws-1-eu-west-1.pooler.supabase.com
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres.mtyfrgnufymefmpclkjt
+      DB_PASSWORD: Jesuislemeilleur2021.
+    networks:
+      - soko_network
+
+  producer:
+    build: ./api
+    container_name: soko_producer
+    command: ["python", "producer.py"]
+    environment:
+      API_URL: http://api:8000/events
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      - api
+      - kafka
+    networks:
+      - soko_network
+
+  # ==========================================
+  # 3. KAFKA CONSUMER & DATA LAKE
+  # ==========================================
+  consumer:
+    build: ./kafka
+    container_name: soko_consumer
+    environment:
+      KAFKA_BROKER: kafka:9092
+      DB_HOST: aws-1-eu-west-1.pooler.supabase.com
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres.mtyfrgnufymefmpclkjt
+      DB_PASSWORD: Jesuislemeilleur2021.
+    volumes:
+      - ./datalake:/datalake
+    depends_on:
+      - kafka
+    networks:
+      - soko_network
+
+  # ==========================================
+  # 4. TRAITEMENT SPARK
+  # ==========================================
+  spark_job:
+    build: ./spark
+    container_name: soko_spark
+    environment:
+      DB_HOST: aws-1-eu-west-1.pooler.supabase.com
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres.mtyfrgnufymefmpclkjt
+      DB_PASSWORD: Jesuislemeilleur2021.
+    volumes:
+      - ./datalake:/datalake
+    depends_on:
+      - consumer
+    networks:
+      - soko_network
+
+  # ==========================================
+  # 5. DATA VIZ & BI (METABASE - ConnectÃ© Ã  Supabase)
+  # ==========================================
+  metabase:
+    image: metabase/metabase:latest
+    container_name: soko_metabase
+    ports:
+      - "3000:3000"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    networks:
+      - soko_network
+
+  # ==========================================
+  # 6. OBSERVABILITÃ‰ (PROMETHEUS & GRAFANA)
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: soko_prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - soko_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: soko_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    depends_on:
+      - prometheus
+    networks:
+      - soko_network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: soko_cadvisor
+    privileged: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - soko_network
+
+networks:
+  soko_network:
+    driver: bridge
