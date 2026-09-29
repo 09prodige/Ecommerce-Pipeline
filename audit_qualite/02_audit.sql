@@ -21,7 +21,7 @@ WHERE p.id IS NULL;
 -- 4. Cohérence : Détecter des statuts non standards dans les annonces
 SELECT id, status 
 FROM listings 
-WHERE status NOT IN ('active', 'reserved', 'sold', 'archived', 'na');
+WHERE status NOT IN ('active', 'reserved', 'sold', 'archived');
 
 -- 5. Validité : Détecter les deals avec des montants négatifs
 SELECT id, agreed_price 

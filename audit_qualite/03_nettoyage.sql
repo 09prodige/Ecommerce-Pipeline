@@ -23,7 +23,7 @@ WHERE seller_id NOT IN (SELECT id FROM profiles);
 -- Mise par défaut à 'active' ou 'archived' pour les valeurs absurdes
 UPDATE listings 
 SET status = 'active'
-WHERE status NOT IN ('active', 'reserved', 'sold', 'archived', 'na');
+WHERE status NOT IN ('active', 'reserved', 'sold', 'archived');
 
 -- 5. Validité : Correction des deals avec montants négatifs
 UPDATE deals 

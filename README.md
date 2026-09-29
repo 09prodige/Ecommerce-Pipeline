@@ -19,12 +19,12 @@
 
 ## 1. Présentation Globale & Objectifs
 
-La plateforme **SOKO COMMERCE** répond aux défis d'ingénierie des données modernes en combinant ingestion temps réel, stockage hybride (Data Lake local + Data Warehouse Supabase/PostgreSQL), observabilité complète et audit qualitatif automatisé.
+La plateforme **SOKO COMMERCE** (marketplace C2C / B2C) combine ingestion temps réel, stockage hybride (Data Lake local + Data Warehouse Supabase/PostgreSQL), observabilité et audit qualité.
 
-Le projet couvre l'intégralité des 3 travaux pratiques (TPs) :
-- **TP1 — Cartographie & Modélisation** : Cartographie fonctionnelle/technique des données e-commerce (commandes, clics, utilisateurs, paiements, avis).
-- **TP2 — Pipeline Streaming Temps Réel & Observabilité** : Ingestion via FastAPI, messagerie Kafka, traitement Spark Streaming, stockage Data Lake / PostgreSQL analytics, et monitoring Prometheus/Grafana/cAdvisor/Metabase.
-- **TP3 — Audit & Nettoyage Qualité des Données** : Matrice de contrôle (complétude, unicité, validité, cohérence, intégrité), scripts SQL d'audit et de nettoyage avec simulation de correction sans altération destructive des sources.
+Le projet couvre les 3 travaux pratiques :
+- **TP1 — Cartographie & Modélisation** : cartographie des sources et modélisation du schéma PostgreSQL SOKO (`profiles`, `categories`, `listings`, `listing_images`, `offers`, `deals`, `reviews`).
+- **TP2 — Pipeline Temps Réel & Observabilité** : API FastAPI → Producer → Kafka → Consumer → Data Lake → PySpark (micro-batch) → PostgreSQL `analytics` → Metabase, supervisé par Prometheus / cAdvisor / Grafana.
+- **TP3 — Audit & Nettoyage Qualité** : matrice de contrôle (complétude, unicité, validité, cohérence, intégrité), scripts SQL d'audit et de nettoyage exécutés en transaction de test (`BEGIN … ROLLBACK`).
 
 ---
 
@@ -32,106 +32,115 @@ Le projet couvre l'intégralité des 3 travaux pratiques (TPs) :
 
 ```mermaid
 flowchart TD
-    subgraph Sources ["1. Sources & Clients"]
-        Client[Client HTTP / App Web]
-        ProducerScript[Producer Python / Simulateur Traffic]
+    subgraph Sources ["1. Sources"]
+        API[FastAPI - GET /events<br/>Source 1 : actions utilisateurs]
+        REF[(Supabase public<br/>Source 2 : profiles, listings)]
     end
 
     subgraph Ingestion ["2. Ingestion & Streaming"]
-        API[FastAPI Service - port 8000]
-        ZK[Zookeeper - port 2181]
-        Kafka[Kafka Broker - port 9092]
+        Producer[Producer Python<br/>interroge l'API chaque seconde]
+        ZK[Zookeeper - 2181]
+        Kafka[Kafka - 9092<br/>topic user_actions]
     end
 
-    subgraph Processing ["3. Traitement & Consommation"]
-        Consumer[Python Consumer Data Lake]
-        Spark[Spark Streaming Engine]
+    subgraph Lake ["3. Data Lake (bind mount ./datalake)"]
+        RawAPI[raw/api_events/events_DATE.jsonl]
+        RawRef[raw/reference_data/profiles.csv, listings.csv]
     end
 
-    subgraph Storage ["4. Stockage & Persistence"]
-        DL[(Data Lake Local - JSON/CSV)]
-        DB[(Supabase PostgreSQL - Schema Public & Analytics)]
+    subgraph Processing ["4. Traitement"]
+        Spark[PySpark micro-batch - toutes les 60 s<br/>dédoublonnage + jointure + agrégats]
     end
 
-    subgraph Monitoring ["5. Observabilité & BI"]
-        Prom[Prometheus - port 9090]
-        Graf[Grafana - port 3000]
-        Cadv[cAdvisor - port 8080]
-        Meta[Metabase - port 3001]
+    subgraph Serving ["5. Stockage analytique & BI"]
+        DB[(Supabase PostgreSQL<br/>schéma analytics)]
+        Meta[Metabase - 3000]
     end
 
-    Client -->|POST /orders| API
-    ProducerScript -->|Injecte événements| Kafka
-    API -->|Publie événements| Kafka
+    subgraph Monitoring ["6. Observabilité"]
+        Cadv[cAdvisor - 8080]
+        Prom[Prometheus - 9090]
+        Graf[Grafana - 3001]
+    end
+
+    API --> Producer --> Kafka
     ZK <--> Kafka
-    Kafka -->|Lit topic soko-events| Consumer
-    Kafka -->|Lit topic soko-events| Spark
-    Consumer -->|Écrit JSON raw| DL
-    Spark -->|Écrit agrégations| DB
-    API -->|Expose metrics /metrics| Prom
-    Cadv -->|Expose metrics conteneurs| Prom
-    Prom -->|Datasource| Graf
-    DB -->|Visualisation| Meta
+    Kafka -->|Consumer Python| RawAPI
+    REF -->|export CSV au démarrage du consumer| RawRef
+    RawAPI --> Spark
+    RawRef --> Spark
+    Spark -->|JDBC| DB
+    DB --> Meta
+    Cadv --> Prom --> Graf
 ```
 
 ---
 
 ## 3. Détail des 10 Services Docker
 
-L'architecture s'appuie sur un fichier `docker-compose.yml` orchestrant 10 conteneurs isolés interconnectés sur un réseau Docker interne (`soko-network`) :
+`docker-compose.yml` orchestre 10 conteneurs sur le réseau interne `soko_network` :
 
 | Service Docker | Image / Techno | Rôle & Responsabilité | Port Externe |
 | :--- | :--- | :--- | :--- |
-| `zookeeper` | `confluentinc/cp-zookeeper:7.5.0` | Coordination du cluster Kafka et gestion des métadonnées de brokers. | `2181` |
-| `kafka` | `confluentinc/cp-kafka:7.5.0` | Bus de données streaming temps réel (Topic principal: `soko-events`). | `9092` |
-| `api` | `Python 3.10 / FastAPI` | Ingestion des transactions et événements via endpoints REST (`/orders`, `/metrics`). | `8000` |
-| `producer` | `Python 3.10 / kafka-python` | Générateur autonome de trafic e-commerce simulant clics, achats et paniers. | - |
-| `consumer` | `Python 3.10 / Data Lake` | Consommateur streaming écrivant les données brutes dans `datalake/raw/`. | - |
-| `spark_job` | `bitnami/spark:3.5.0` | Moteur PySpark Structured Streaming calculant les agrégats et alimentant Supabase. | - |
-| `metabase` | `metabase/metabase:latest` | Outil BI / Dashboards connectés à PostgreSQL pour la restitution décisionnelle. | `3001` |
-| `prometheus` | `prom/prometheus:latest` | Collecteur de métriques système, applicatives (FastAPI) et conteneurs (cAdvisor). | `9090` |
-| `grafana` | `grafana/grafana:latest` | Tableaux de bord en temps réel pour l'état de la infrastructure et des services. | `3000` |
-| `cadvisor` | `gcr.io/cadvisor/cadvisor` | Supervision des ressources matérielles des conteneurs (CPU, RAM, Network I/O). | `8080` |
+| `zookeeper` | `bitnamilegacy/zookeeper:3.8` | Coordination du broker Kafka. | `2181` |
+| `kafka` | `bitnamilegacy/kafka:3.4` | Bus de messages (topic `user_actions`). | `9092`, `29092` |
+| `api` | Python 3.9 / FastAPI (`./api`) | Source 1 : génère des actions utilisateurs (`GET /events`, `GET /health`) à partir des vrais IDs `profiles` / `listings`. | `8000` |
+| `producer` | Python 3.9 / kafka-python (`./api`) | Interroge l'API chaque seconde et publie les événements dans Kafka. | - |
+| `consumer` | Python 3.9 / kafka-python (`./kafka`) | Exporte la Source 2 (profiles, listings) en CSV puis écrit les événements Kafka dans `datalake/raw/api_events/`. | - |
+| `spark_job` | Python 3.9 + PySpark + JRE (`./spark`) | Micro-batch 60 s : lecture Data Lake, nettoyage, jointure, agrégats → `analytics`. | - |
+| `metabase` | `metabase/metabase:latest` | Dashboards métier connectés à Supabase. | `3000` |
+| `prometheus` | `prom/prometheus:v2.45.0` | Collecte des métriques (scrape 15 s : Prometheus, cAdvisor). | `9090` |
+| `grafana` | `grafana/grafana:latest` | Dashboards de supervision (datasource `http://prometheus:9090`). | `3001` |
+| `cadvisor` | `gcr.io/cadvisor/cadvisor:v0.49.1` | Métriques CPU / mémoire des conteneurs. | `8080` |
 
 ---
 
 ## 4. Communication Inter-couches & Flux de Données
 
-1. **Ingestion REST / Event-Driven** :
-   - L'API FastAPI reçoit des requêtes JSON. Elle valide le payload avec Pydantic et sérialise le message vers Kafka via le broker `kafka:9092`.
-   - Le script `producer` génère également des flux continus directement dans le bus Kafka.
+1. **Collecte (Source 1 — API)** :
+   - Au démarrage, l'API charge les IDs `profiles` et `listings` depuis Supabase.
+   - `GET /events` renvoie 1 à 5 événements : `event_id`, `timestamp`, `user_id`, `listing_id`, `action_type` (`view_listing`, `like_listing`, `send_message`, `create_offer`), `device`.
+   - Le `producer` appelle l'API chaque seconde et publie chaque événement dans le topic `user_actions`.
 
-2. **Traitement Parallèle Data Lake & Analytics** :
-   - **Voie Froide (Data Lake)** : Le conteneur `consumer` écoute `soko-events` et partitionne les fichiers JSON/CSV bruts horodatés dans l'arborescence `datalake/raw/YYYY/MM/DD/`.
-   - **Voie Chaude (Streaming Analytics)** : PySpark (`spark_job`) effectue un fenêtrage glissant (Watermarking), transforme les données en types structurés, et insère les statistiques consolidées dans la table `analytics.daily_sales` de Supabase PostgreSQL via JDBC.
+2. **Collecte (Source 2 — référentiel)** :
+   - Au démarrage, le `consumer` exporte `profiles` (id, display_name, is_seller) et `listings` (id, seller_id, category_id, title, price, status) en CSV dans `datalake/raw/reference_data/`.
 
-3. **Observabilité & Supervision** :
-   - Prometheus scotche l'endpoint `/metrics` de FastAPI toutes les 5 secondes ainsi que cAdvisor.
-   - Grafana interroge Prometheus (`http://prometheus:9090`) pour afficher le débit de requêtes, la mémoire consommée et l'état des conteneurs.
+3. **Data Lake** :
+   - Le `consumer` lit `user_actions` et ajoute chaque événement (JSON Lines) dans `datalake/raw/api_events/events_<date>.jsonl`.
+
+4. **Traitement & chargement (PySpark)** :
+   - Toutes les 60 s : lecture des JSONL + CSV, dédoublonnage sur `event_id`, jointure événements × listings.
+   - Écriture JDBC (mode `overwrite`) dans Supabase :
+     - `analytics.listing_metrics` : vues, likes, offres, messages par annonce ;
+     - `analytics.daily_activity` : nombre d'actions par jour et par type.
+
+5. **Restitution & supervision** :
+   - Metabase interroge le schéma `analytics` (top annonces, répartition des actions).
+   - Prometheus scrape cAdvisor ; Grafana affiche CPU / mémoire à partir de Prometheus.
 
 ---
 
 ## 5. Guide de Démarrage & Déploiement
 
 ### Pré-requis
-- Docker Desktop sous Windows / Linux / macOS (avec WSL2 sur Windows).
-- Un compte Supabase (ou instance PostgreSQL distante) préconfiguré.
+- Docker Desktop (WSL2 sous Windows).
+- Un projet Supabase contenant le schéma TP1 (`postgres/init/01-schema.sql`, `02-data.sql`).
 
 ### Étapes de lancement
 
 1. **Configuration de l'environnement** :  
-   Créer un fichier `.env` à la racine :
+   Renseigner les identifiants Supabase (pooler en mode session) :
    ```env
-   DB_HOST=aws-0-eu-central-1.pooler.supabase.com
-   DB_PORT=6543
+   DB_HOST=aws-1-eu-west-1.pooler.supabase.com
+   DB_PORT=5432
    DB_NAME=postgres
-   DB_USER=postgres.xxxx
-   DB_PASSWORD=VotreMotDePasseSupabase
+   DB_USER=postgres.<project_ref>
+   DB_PASSWORD=<mot_de_passe>
    ```
 
 2. **Démarrage de la stack Docker** :
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 3. **Vérification du statut des services** :
@@ -139,55 +148,57 @@ L'architecture s'appuie sur un fichier `docker-compose.yml` orchestrant 10 conte
    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
    ```
 
-4. **Accès aux interfaces d'administration & dashboards** :
-   - **API Swagger / Docs** : `http://localhost:8000/docs`
+4. **Accès aux interfaces** :
+   - **API Swagger** : `http://localhost:8000/docs`
+   - **Metabase BI** : `http://localhost:3000`
+   - **Grafana** : `http://localhost:3001` (User: `admin` / Pass: `admin`)
    - **Prometheus UI** : `http://localhost:9090`
-   - **Grafana Dashboards** : `http://localhost:3000` (User: `admin` / Pass: `admin`)
-   - **Metabase BI** : `http://localhost:3001`
-   - **cAdvisor Metrics** : `http://localhost:8080`
+   - **cAdvisor** : `http://localhost:8080`
 
 ---
 
 ## 6. Audit & Nettoyage de Qualité des Données (TP3)
 
-Le dossier `audit_qualite/` regroupe l'ensemble des éléments exigés pour le TP3 :
+Le dossier `audit_qualite/` regroupe les livrables du TP3, appliqués aux tables du schéma TP1 (`profiles`, `listings`, `deals`, `reviews`) :
 
-- **`01_matrice_qualite.md`** : Grille d'évaluation définissant 5 dimensions clés (Complétude, Unicité, Validité, Cohérence, Intégrité) et déclinant 12 contrôles stricts.
-- **`02_audit.sql`** : Script de requêtes d'audit analysant l'état des tables (`orders`, `clickstream`, `users`, `payments`, `reviews`).
-- **`03_nettoyage.sql`** : Procédures de nettoyage et corrections non destructives (Vues simulées & requêtes de rectification par imputation/substitution).
-- **`04_documentation_resultats.md`** : Rapport complet comparatif Avant / Après nettoyage.
+- **`01_matrice_qualite.md`** : cartographie mise à jour + matrice de 9 contrôles sur 5 dimensions (Complétude, Unicité, Validité, Cohérence, Intégrité).
+- **`02_audit.sql`** : 7 requêtes de détection des anomalies.
+- **`03_nettoyage.sql`** : corrections (substitution, valeur absolue, suppression, plafonnement).
+- **`04_documentation_resultats.md`** : justification des corrections et méthode de contrôle avant / après.
 
-### Synthèse des Anomalies & Correctifs appliqués
+### Contrôles & correctifs
 
-| Entité / Table | Problème Détecté | Dimension | Action Corrective | Résultat Après Nettoyage |
-| :--- | :--- | :--- | :--- | :--- |
-| `orders` | Montants négatifs / nuls (`total_amount <= 0`) | Validité | Conversion en valeur absolue `ABS(total_amount)` ou valeur par défaut. | **0% d'anomalies** (100% valides) |
-| `orders` | Statuts inconnus ou mal orthographiés | Cohérence | Standardisation ('completed', 'pending', 'cancelled', 'refunded'). | **100% cohérent** |
-| `users` | Emails invalides sans `@` ou domaine | Validité | Expression régulière d'invalidation + drapeau `is_email_valid`. | Emails nettoyés |
-| `clickstream` | Clés étrangères `user_id` absentes | Intégrité | Attribution d'un utilisateur anonyme par défaut (`00000000-...`). | Intégrité référentielle garantie |
-| `payments` | Doublons de transactions (`transaction_id`) | Unicité | Dédoublonnement par fenêtre SQL (`ROW_NUMBER() OVER (...)`). | **0 doublon** |
+| Table | Contrôle | Dimension | Action corrective |
+| :--- | :--- | :--- | :--- |
+| `profiles` | `display_name` NULL ou vide | Complétude | Substitution par « Utilisateur Anonyme » |
+| `listings` | `price < 0` | Validité | `ABS(price)` |
+| `listings` | `seller_id` sans profil correspondant | Intégrité | Suppression de l'annonce orpheline |
+| `listings` | `status` hors (`active`, `reserved`, `sold`, `archived`) | Cohérence | Remplacement par `active` |
+| `listings` | Doublons (même vendeur, titre, prix) | Unicité | `ROW_NUMBER()` : conservation de la plus récente |
+| `deals` | `agreed_price < 0` | Validité | `ABS(agreed_price)` |
+| `reviews` | `rating` hors [1 ; 5] | Validité | Plafonnement à 1 ou 5 |
+
+Les corrections sont exécutées dans une transaction de test (`BEGIN; … ROLLBACK;`) puis l'audit est relancé pour comparer avant / après sans altérer la base.
 
 ---
 
 ## 7. Problèmes Rencontrés & Solutions Techniques
 
-Au cours du développement de la plateforme, plusieurs difficultés techniques ont été identifiées et résolues :
+1. **Grafana ne joignait pas Prometheus** :
+   - *Symptôme* : `dial tcp [::1]:9090: connect: connection refused`.
+   - *Solution* : dans un conteneur, `localhost` désigne le conteneur lui-même → datasource `http://prometheus:9090` (nom du service Docker).
 
-1. **Format d'encodage des fichiers markdown (UTF-8 sur Windows)** :
-   - *Symptôme* : Caractères accentués corrompus dans la console Windows et Visual Studio Code.
-   - *Solution* : Réencodage explicite de tous les fichiers du dossier `audit_qualite/` en UTF-8 sans BOM et nettoyage des entêtes SQL.
+2. **Filtre `name!=""` dans cAdvisor sous Docker Desktop Windows** :
+   - *Symptôme* : « No data » sur les requêtes par conteneur.
+   - *Solution* : sous Docker Desktop, cAdvisor n'expose que les cgroups (`/`, `/docker`…) sans label `name` → requêtes sans ce filtre.
 
-2. **Incompatibilité du filtre `name!=""` dans cAdvisor sous Windows Docker Desktop** :
-   - *Symptôme* : PromQL ne retournait aucune métrique de conteneur.
-   - *Solution* : Suppression du filtre strict `name!=""` dans les requêtes Grafana/Prometheus conformément aux spécificités du driver Windows cAdvisor.
+3. **Connexion à Supabase** :
+   - *Symptôme* : échecs d'authentification et de connexion depuis Metabase et les conteneurs.
+   - *Solution* : utilisation du pooler Supabase en mode session (`aws-1-eu-west-1.pooler.supabase.com:5432`, user `postgres.<project_ref>`) et DNS publics pour Metabase.
 
-3. **Connexion JDBC Spark vers Supabase (Pooling vs Direct)** :
-   - *Symptôme* : Erreurs de connexion intermittentes lors des écritures streaming PySpark.
-   - *Solution* : Configuration spécifique des propriétés JDBC (SSL mode `require`, ajustement des timeouts et des drivers PostgreSQL dans le conteneur Spark).
-
-4. **Préservation du Data Lake vs Nettoyage SQL** :
-   - *Symptôme* : Risque d'altération destructive des fichiers bruts originaux lors de l'application des consignes du TP3.
-   - *Solution* : Implémentation d'une couche de nettoyage logique (Vues SQL `v_clean_orders`, `v_clean_users`) préservant l'immutabilité du Data Lake brut (Règle d'or Data Engineering).
+4. **Préservation des données lors du nettoyage (TP3)** :
+   - *Symptôme* : les corrections `UPDATE` / `DELETE` modifient la base.
+   - *Solution* : Data Lake brut jamais modifié ; scripts de nettoyage testés en transaction `BEGIN … ROLLBACK`.
 
 ---
 
@@ -195,11 +206,10 @@ Au cours du développement de la plateforme, plusieurs difficultés techniques o
 
 | TP | Exigence du Sujet | Couverture dans le Projet | Statut |
 | :--- | :--- | :--- | :--- |
-| **TP1** | Cartographie des sources et schéma cible | Modélisation des 5 entités e-commerce (Orders, Users, Clics, Paiements, Avis) dans PostgreSQL Supabase & Data Lake. | ✅ **100% Conforme** |
-| **TP2** | Ingestion streaming, stockage, observabilité | Stack 10 conteneurs avec FastAPI, Kafka, Spark Streaming, Data Lake local, Prometheus, Grafana, cAdvisor et Metabase. | ✅ **100% Conforme** |
-| **TP3** | Audit Qualité, Matrice, SQL & Rapport | Rédaction de la Matrice (01), Audit SQL (02), Scripts de Nettoyage (03), Documentation Avant/Après (04). | ✅ **100% Conforme** |
+| **TP1** | Cartographie des sources et schéma cible | Dictionnaire de données, MCD/MLD et schéma PostgreSQL (`profiles`, `categories`, `listings`, `listing_images`, `offers`, `deals`, `reviews`). | ✅ Réalisé |
+| **TP2** | Ingestion streaming, stockage, observabilité | 10 conteneurs : API, Kafka, Data Lake, PySpark, Supabase, Metabase, Prometheus, Grafana, cAdvisor. | 🟡 Pipeline fonctionnel — reste : métriques PostgreSQL et indicateur Raw vs Clean dans Grafana |
+| **TP3** | Audit qualité, matrice, SQL & rapport | Matrice (01), audit SQL (02), nettoyage (03), documentation (04). | 🟡 Livrables rédigés — reste : chiffres mesurés avant / après |
 
 ---
 
-> **Plateforme validée et opérationnelle.**  
-> *Dernière mise à jour : Septembre 2026*
+*Dernière mise à jour : Septembre 2026*
